@@ -1,22 +1,34 @@
 import { supabase } from '@/lib/supabase'
-import type { Producto } from '@/types'
+import type { Producto, Subcategoria } from '@/types'
 import Header from '@/components/ui/Header'
 import Hero from '@/components/shop/Hero'
-import ProductGrid from '@/components/shop/ProductGrid'
+import TiendaFiltros from '@/components/shop/TiendaFiltros'
 
 export const revalidate = 60 // revalidar cada 60s
 
 async function getProductos(): Promise<Producto[]> {
   const { data } = await supabase
     .from('productos')
-    .select('*')
+    .select('*, producto_atributos(valor_id)')
     .eq('activo', true)
     .order('creado_en', { ascending: false })
+  return (data ?? []).map(({ producto_atributos, ...p }: any) => ({
+    ...p,
+    atributos: (producto_atributos ?? []).map((a: any) => a.valor_id)
+  }))
+}
+
+async function getSubcategorias(): Promise<Subcategoria[]> {
+  const { data } = await supabase
+    .from('subcategorias')
+    .select('*, subcategoria_valores(*)')
+    .order('orden')
+    .order('orden', { foreignTable: 'subcategoria_valores' })
   return data ?? []
 }
 
 export default async function HomePage() {
-  const productos = await getProductos()
+  const [productos, subcategorias] = await Promise.all([getProductos(), getSubcategorias()])
 
   return (
     <>
@@ -30,7 +42,7 @@ export default async function HomePage() {
           <p className="text-sm text-[var(--text-soft)] mb-8 tracking-wide">
             Piezas únicas disponibles ahora mismo
           </p>
-          <ProductGrid productos={productos} />
+          <TiendaFiltros productos={productos} subcategorias={subcategorias} />
         </section>
       </main>
     </>

@@ -1,4 +1,4 @@
-# 🌸 Alma Artesanal — Tienda de Bijouterie
+# 🌸 Creaciones Nala — Tienda de Bijouterie
 
 Tienda online completa construida con **Next.js 14**, **Supabase**, **Cloudinary**, **MercadoPago** y **Resend**.
 

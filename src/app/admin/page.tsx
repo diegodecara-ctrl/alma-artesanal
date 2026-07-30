@@ -2,25 +2,31 @@
 import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import toast from 'react-hot-toast'
-import { Plus, Trash2, Upload, Pencil, Check, X } from 'lucide-react'
+import { Plus, Trash2, Upload, Pencil, Check, X, Tag, Layers } from 'lucide-react'
 import Header from '@/components/ui/Header'
-import type { Producto, Categoria } from '@/types'
+import type { Producto, Categoria, Subcategoria } from '@/types'
 
 const CATEGORIAS: Categoria[] = ['Collares','Pulseras','Aros','Anillos','Broches','Sets','Otro']
 const fmt = (n: number) => '$' + n.toLocaleString('es-AR')
 
 export default function AdminPage() {
   const [productos, setProductos] = useState<Producto[]>([])
+  const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
   const [cargando, setCargando] = useState(true)
   const [modalAbierto, setModalAbierto] = useState(false)
+  const [productoEtiquetando, setProductoEtiquetando] = useState<Producto | null>(null)
+  const [productoEditando, setProductoEditando] = useState<Producto | null>(null)
 
-  useEffect(() => { cargarProductos() }, [])
+  useEffect(() => { cargarTodo() }, [])
 
-  async function cargarProductos() {
+  async function cargarTodo() {
     setCargando(true)
-    const res = await fetch('/api/products')
-    const data = await res.json()
-    setProductos(data)
+    const [resProductos, resSub] = await Promise.all([
+      fetch('/api/products'),
+      fetch('/api/subcategorias')
+    ])
+    setProductos(await resProductos.json())
+    setSubcategorias(await resSub.json())
     setCargando(false)
   }
 
@@ -40,6 +46,36 @@ export default function AdminPage() {
     if (res.ok) {
       setProductos(p => p.map(x => x.id === id ? { ...x, [campo]: valor } : x))
       toast.success('Actualizado ✓')
+    }
+  }
+
+  async function guardarProducto(id: string, campos: { nombre: string; descripcion: string; categoria: Categoria }) {
+    const res = await fetch('/api/products', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...campos })
+    })
+    if (res.ok) {
+      setProductos(p => p.map(x => x.id === id ? { ...x, ...campos } : x))
+      toast.success('Producto actualizado ✓')
+      setProductoEditando(null)
+    } else {
+      toast.error('No se pudo actualizar')
+    }
+  }
+
+  async function guardarAtributos(id: string, atributos: string[]) {
+    const res = await fetch('/api/products', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, atributos })
+    })
+    if (res.ok) {
+      setProductos(p => p.map(x => x.id === id ? { ...x, atributos } : x))
+      toast.success('Etiquetas actualizadas ✓')
+      setProductoEtiquetando(null)
+    } else {
+      toast.error('No se pudo actualizar')
     }
   }
 
@@ -77,8 +113,11 @@ export default function AdminPage() {
                 <ProductoAdminRow
                   key={p.id}
                   producto={p}
+                  tieneSubcategorias={subcategorias.some(s => s.categoria === p.categoria)}
                   onActualizar={actualizarCampo}
                   onEliminar={() => eliminarProducto(p.id, p.nombre)}
+                  onEditar={() => setProductoEditando(p)}
+                  onEtiquetar={() => setProductoEtiquetando(p)}
                   onImagenActualizada={(url) => setProductos(prev =>
                     prev.map(x => x.id === p.id ? { ...x, imagen_url: url } : x)
                   )}
@@ -87,29 +126,185 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* Subir imagen */}
-          <ImagenManager productos={productos} onActualizada={(id, url) =>
-            setProductos(p => p.map(x => x.id === id ? { ...x, imagen_url: url } : x))
-          } />
+          <div className="flex flex-col gap-6">
+            {/* Subir imagen */}
+            <ImagenManager productos={productos} onActualizada={(id, url) =>
+              setProductos(p => p.map(x => x.id === id ? { ...x, imagen_url: url } : x))
+            } />
+
+            {/* Subcategorías */}
+            <SubcategoriasManager subcategorias={subcategorias} onCambio={setSubcategorias} />
+          </div>
         </div>
       </main>
 
       {modalAbierto && (
         <NuevoProductoModal
+          subcategorias={subcategorias}
           onCerrar={() => setModalAbierto(false)}
           onCreado={(p) => { setProductos(prev => [p, ...prev]); setModalAbierto(false) }}
+        />
+      )}
+
+      {productoEtiquetando && (
+        <EtiquetasModal
+          producto={productoEtiquetando}
+          subcategorias={subcategorias.filter(s => s.categoria === productoEtiquetando.categoria)}
+          onCerrar={() => setProductoEtiquetando(null)}
+          onGuardar={(atributos) => guardarAtributos(productoEtiquetando.id, atributos)}
+        />
+      )}
+
+      {productoEditando && (
+        <EditarProductoModal
+          producto={productoEditando}
+          onCerrar={() => setProductoEditando(null)}
+          onGuardar={(campos) => guardarProducto(productoEditando.id, campos)}
         />
       )}
     </>
   )
 }
 
+// ── Selector de atributos (checkboxes agrupados por subcategoría) ──
+
+function AtributosPicker({ subcategorias, selected, onToggle }: {
+  subcategorias: Subcategoria[]
+  selected: string[]
+  onToggle: (valorId: string) => void
+}) {
+  if (!subcategorias.length) {
+    return <p className="text-xs text-[var(--text-soft)] italic">Esta categoría todavía no tiene subcategorías cargadas.</p>
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      {subcategorias.map(sub => (
+        <div key={sub.id}>
+          <p className="text-[10px] font-semibold tracking-widest uppercase text-[var(--text-soft)] mb-1.5">{sub.nombre}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {sub.subcategoria_valores.map(v => {
+              const activo = selected.includes(v.id)
+              return (
+                <button
+                  type="button"
+                  key={v.id}
+                  onClick={() => onToggle(v.id)}
+                  className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                    activo
+                      ? 'bg-[var(--gold)] border-[var(--gold)] text-[var(--earth)] font-semibold'
+                      : 'border-[var(--warm)] text-[var(--text-soft)] hover:border-[var(--gold)]'
+                  }`}
+                >
+                  {v.nombre}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Modal: editar etiquetas de un producto existente ──
+
+function EtiquetasModal({ producto, subcategorias, onCerrar, onGuardar }: {
+  producto: Producto
+  subcategorias: Subcategoria[]
+  onCerrar: () => void
+  onGuardar: (atributos: string[]) => void
+}) {
+  const [seleccion, setSeleccion] = useState<string[]>(producto.atributos ?? [])
+
+  const toggle = (valorId: string) =>
+    setSeleccion(s => s.includes(valorId) ? s.filter(x => x !== valorId) : [...s, valorId])
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onCerrar}>
+      <div className="bg-[var(--white)] rounded-2xl p-8 w-full max-w-md shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <h2 className="font-display text-2xl font-semibold text-[var(--earth)] mb-1">Etiquetas</h2>
+        <p className="text-xs text-[var(--text-soft)] mb-5">{producto.nombre} · {producto.categoria}</p>
+
+        <AtributosPicker subcategorias={subcategorias} selected={seleccion} onToggle={toggle} />
+
+        <div className="flex gap-3 justify-end mt-6">
+          <button onClick={onCerrar} className="px-5 py-2 border-[1.5px] border-[var(--gold)] text-[var(--earth)] text-xs font-semibold tracking-widest uppercase rounded-lg hover:bg-[var(--warm)] transition-colors">
+            Cancelar
+          </button>
+          <button onClick={() => onGuardar(seleccion)}
+            className="px-5 py-2 bg-[var(--earth)] text-[var(--cream)] text-xs font-semibold tracking-widest uppercase rounded-lg hover:bg-[var(--bronze)] transition-colors">
+            Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Modal: editar nombre, descripción y categoría ──
+
+function EditarProductoModal({ producto, onCerrar, onGuardar }: {
+  producto: Producto
+  onCerrar: () => void
+  onGuardar: (campos: { nombre: string; descripcion: string; categoria: Categoria }) => void
+}) {
+  const [nombre, setNombre] = useState(producto.nombre)
+  const [descripcion, setDescripcion] = useState(producto.descripcion ?? '')
+  const [categoria, setCategoria] = useState<Categoria>(producto.categoria)
+
+  function handleGuardar() {
+    if (!nombre.trim()) { toast.error('El nombre es obligatorio'); return }
+    onGuardar({ nombre: nombre.trim(), descripcion: descripcion.trim(), categoria })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onCerrar}>
+      <div className="bg-[var(--white)] rounded-2xl p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+        <h2 className="font-display text-2xl font-semibold text-[var(--earth)] mb-6">Editar producto</h2>
+
+        <div className="mb-3">
+          <label className="block text-[10px] font-semibold tracking-widest uppercase text-[var(--text-soft)] mb-1">Nombre *</label>
+          <input type="text" value={nombre} onChange={e => setNombre(e.target.value)}
+            className="w-full border-[1.5px] border-[var(--warm)] bg-[var(--cream)] text-sm px-3 py-2 rounded-lg focus:outline-none focus:border-[var(--gold)]" />
+        </div>
+
+        <div className="mb-3">
+          <label className="block text-[10px] font-semibold tracking-widest uppercase text-[var(--text-soft)] mb-1">Descripción</label>
+          <input type="text" value={descripcion} onChange={e => setDescripcion(e.target.value)}
+            className="w-full border-[1.5px] border-[var(--warm)] bg-[var(--cream)] text-sm px-3 py-2 rounded-lg focus:outline-none focus:border-[var(--gold)]" />
+        </div>
+
+        <div className="mb-6">
+          <label className="block text-[10px] font-semibold tracking-widest uppercase text-[var(--text-soft)] mb-1">Categoría</label>
+          <select value={categoria} onChange={e => setCategoria(e.target.value as Categoria)}
+            className="w-full border-[1.5px] border-[var(--warm)] bg-[var(--cream)] text-sm px-3 py-2 rounded-lg focus:outline-none focus:border-[var(--gold)]">
+            {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+
+        <div className="flex gap-3 justify-end">
+          <button onClick={onCerrar} className="px-5 py-2 border-[1.5px] border-[var(--gold)] text-[var(--earth)] text-xs font-semibold tracking-widest uppercase rounded-lg hover:bg-[var(--warm)] transition-colors">
+            Cancelar
+          </button>
+          <button onClick={handleGuardar}
+            className="px-5 py-2 bg-[var(--earth)] text-[var(--cream)] text-xs font-semibold tracking-widest uppercase rounded-lg hover:bg-[var(--bronze)] transition-colors">
+            Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Fila de producto en admin ─────────────────────────────
 
-function ProductoAdminRow({ producto: p, onActualizar, onEliminar, onImagenActualizada }: {
+function ProductoAdminRow({ producto: p, tieneSubcategorias, onActualizar, onEliminar, onEditar, onEtiquetar, onImagenActualizada }: {
   producto: Producto
+  tieneSubcategorias: boolean
   onActualizar: (id: string, campo: string, valor: number) => void
   onEliminar: () => void
+  onEditar: () => void
+  onEtiquetar: () => void
   onImagenActualizada: (url: string) => void
 }) {
   const [editPrecio, setEditPrecio] = useState(false)
@@ -127,7 +322,9 @@ function ProductoAdminRow({ producto: p, onActualizar, onEliminar, onImagenActua
       </div>
 
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-sm text-[var(--earth)] truncate">{p.nombre}</p>
+        <button onClick={onEditar} className="flex items-center gap-1 font-semibold text-sm text-[var(--earth)] hover:underline truncate">
+          <span className="truncate">{p.nombre}</span> <Pencil size={11} className="flex-shrink-0" />
+        </button>
         <p className="text-xs text-[var(--text-soft)]">{p.categoria}</p>
       </div>
 
@@ -168,6 +365,12 @@ function ProductoAdminRow({ producto: p, onActualizar, onEliminar, onImagenActua
           </button>
         )}
       </div>
+
+      {tieneSubcategorias && (
+        <button onClick={onEtiquetar} className="text-gray-300 hover:text-[var(--gold-dark)] transition-colors flex-shrink-0" title="Editar etiquetas">
+          <Tag size={15} />
+        </button>
+      )}
 
       <button onClick={onEliminar} className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0">
         <Trash2 size={15} />
@@ -217,7 +420,7 @@ function ImagenManager({ productos, onActualizada }: {
   }
 
   return (
-    <div className="bg-[var(--white)] rounded-2xl p-6 shadow-md sticky top-24">
+    <div className="bg-[var(--white)] rounded-2xl p-6 shadow-md">
       <h2 className="font-display text-xl font-semibold text-[var(--earth)] border-b-2 border-[var(--gold)] pb-3 mb-5">
         Gestión de imágenes
       </h2>
@@ -276,16 +479,154 @@ function ImagenManager({ productos, onActualizada }: {
   )
 }
 
+// ── Gestor de subcategorías ───────────────────────────────
+
+function SubcategoriasManager({ subcategorias, onCambio }: {
+  subcategorias: Subcategoria[]
+  onCambio: (s: Subcategoria[]) => void
+}) {
+  const [categoria, setCategoria] = useState<Categoria>('Aros')
+  const [nombreSub, setNombreSub] = useState('')
+  const [valorPorSub, setValorPorSub] = useState<Record<string, string>>({})
+  const [creando, setCreando] = useState(false)
+
+  const deLaCategoria = subcategorias.filter(s => s.categoria === categoria)
+
+  async function crearSubcategoria() {
+    if (!nombreSub.trim()) return
+    setCreando(true)
+    const res = await fetch('/api/subcategorias', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoria, nombre: nombreSub.trim() })
+    })
+    const data = await res.json()
+    if (res.ok) {
+      onCambio([...subcategorias, data])
+      setNombreSub('')
+      toast.success('Subcategoría creada ✓')
+    } else toast.error(data.error || 'Error')
+    setCreando(false)
+  }
+
+  async function eliminarSubcategoria(id: string) {
+    if (!confirm('¿Eliminar esta subcategoría y todos sus ítems?')) return
+    await fetch(`/api/subcategorias?id=${id}`, { method: 'DELETE' })
+    onCambio(subcategorias.filter(s => s.id !== id))
+    toast.success('Subcategoría eliminada')
+  }
+
+  async function crearValor(subId: string) {
+    const nombre = (valorPorSub[subId] || '').trim()
+    if (!nombre) return
+    const res = await fetch('/api/subcategorias/valores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subcategoria_id: subId, nombre })
+    })
+    const data = await res.json()
+    if (res.ok) {
+      onCambio(subcategorias.map(s => s.id === subId ? { ...s, subcategoria_valores: [...s.subcategoria_valores, data] } : s))
+      setValorPorSub(v => ({ ...v, [subId]: '' }))
+    } else toast.error(data.error || 'Error')
+  }
+
+  async function eliminarValor(subId: string, valorId: string) {
+    await fetch(`/api/subcategorias/valores?id=${valorId}`, { method: 'DELETE' })
+    onCambio(subcategorias.map(s => s.id === subId
+      ? { ...s, subcategoria_valores: s.subcategoria_valores.filter(v => v.id !== valorId) }
+      : s))
+  }
+
+  return (
+    <div className="bg-[var(--white)] rounded-2xl p-6 shadow-md">
+      <h2 className="font-display text-xl font-semibold text-[var(--earth)] border-b-2 border-[var(--gold)] pb-3 mb-5 flex items-center gap-2">
+        <Layers size={18} /> Subcategorías
+      </h2>
+
+      <div className="mb-4">
+        <label className="block text-[10px] font-semibold tracking-widest uppercase text-[var(--text-soft)] mb-1">Categoría</label>
+        <select
+          value={categoria}
+          onChange={e => setCategoria(e.target.value as Categoria)}
+          className="w-full border-[1.5px] border-[var(--warm)] bg-[var(--cream)] text-[var(--earth)] text-sm px-3 py-2 rounded-lg focus:outline-none focus:border-[var(--gold)]"
+        >
+          {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-4 mb-4">
+        {deLaCategoria.length === 0 && (
+          <p className="text-xs text-[var(--text-soft)] italic">Sin subcategorías todavía para {categoria}.</p>
+        )}
+        {deLaCategoria.map(sub => (
+          <div key={sub.id} className="border border-[var(--warm)] rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-[var(--earth)]">{sub.nombre}</p>
+              <button onClick={() => eliminarSubcategoria(sub.id)} className="text-gray-300 hover:text-red-400">
+                <Trash2 size={13} />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {sub.subcategoria_valores.map(v => (
+                <span key={v.id} className="flex items-center gap-1 text-[11px] bg-[var(--cream)] border border-[var(--warm)] rounded-full px-2 py-0.5">
+                  {v.nombre}
+                  <button onClick={() => eliminarValor(sub.id, v.id)} className="text-gray-400 hover:text-red-400"><X size={10} /></button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-1.5">
+              <input
+                type="text" placeholder="Nuevo ítem..."
+                value={valorPorSub[sub.id] || ''}
+                onChange={e => setValorPorSub(v => ({ ...v, [sub.id]: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && crearValor(sub.id)}
+                className="flex-1 border border-[var(--warm)] bg-[var(--cream)] text-xs px-2 py-1.5 rounded-lg focus:outline-none focus:border-[var(--gold)]"
+              />
+              <button onClick={() => crearValor(sub.id)} className="text-[var(--bronze)] hover:text-[var(--earth)]">
+                <Plus size={16} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-1.5 pt-3 border-t border-[var(--warm)]">
+        <input
+          type="text" placeholder="Nueva subcategoría (ej. Material)..."
+          value={nombreSub}
+          onChange={e => setNombreSub(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && crearSubcategoria()}
+          className="flex-1 border border-[var(--warm)] bg-[var(--cream)] text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-[var(--gold)]"
+        />
+        <button
+          onClick={crearSubcategoria}
+          disabled={creando}
+          className="bg-[var(--earth)] text-[var(--cream)] text-xs font-semibold px-3 rounded-lg hover:bg-[var(--bronze)] disabled:opacity-50 transition-colors"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Modal nuevo producto ──────────────────────────────────
 
-function NuevoProductoModal({ onCerrar, onCreado }: {
+function NuevoProductoModal({ subcategorias, onCerrar, onCreado }: {
+  subcategorias: Subcategoria[]
   onCerrar: () => void
   onCreado: (p: Producto) => void
 }) {
   const [form, setForm] = useState({ nombre:'', descripcion:'', precio:'', stock:'', categoria: 'Collares' as Categoria })
+  const [atributos, setAtributos] = useState<string[]>([])
   const [cargando, setCargando] = useState(false)
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+  const toggleAtributo = (valorId: string) =>
+    setAtributos(a => a.includes(valorId) ? a.filter(x => x !== valorId) : [...a, valorId])
+
+  const subcategoriasCategoria = subcategorias.filter(s => s.categoria === form.categoria)
 
   async function handleCrear() {
     if (!form.nombre || !form.precio) { toast.error('Nombre y precio son obligatorios'); return }
@@ -293,7 +634,7 @@ function NuevoProductoModal({ onCerrar, onCreado }: {
     const res = await fetch('/api/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, precio: Number(form.precio), stock: Number(form.stock) || 0 })
+      body: JSON.stringify({ ...form, precio: Number(form.precio), stock: Number(form.stock) || 0, atributos })
     })
     const data = await res.json()
     if (res.ok) { onCreado(data); toast.success(`"${data.nombre}" creado ✓`) }
@@ -303,7 +644,7 @@ function NuevoProductoModal({ onCerrar, onCreado }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onCerrar}>
-      <div className="bg-[var(--white)] rounded-2xl p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-[var(--white)] rounded-2xl p-8 w-full max-w-md shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h2 className="font-display text-2xl font-semibold text-[var(--earth)] mb-6">Nuevo producto</h2>
 
         {[
@@ -319,13 +660,13 @@ function NuevoProductoModal({ onCerrar, onCreado }: {
 
         <div className="mb-3">
           <label className="block text-[10px] font-semibold tracking-widest uppercase text-[var(--text-soft)] mb-1">Categoría</label>
-          <select value={form.categoria} onChange={e => set('categoria', e.target.value)}
+          <select value={form.categoria} onChange={e => { set('categoria', e.target.value); setAtributos([]) }}
             className="w-full border-[1.5px] border-[var(--warm)] bg-[var(--cream)] text-sm px-3 py-2 rounded-lg focus:outline-none focus:border-[var(--gold)]">
             {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="grid grid-cols-2 gap-3 mb-5">
           {[
             { key: 'precio', label: 'Precio ($) *', placeholder: '2500' },
             { key: 'stock', label: 'Stock inicial', placeholder: '5' },
@@ -337,6 +678,13 @@ function NuevoProductoModal({ onCerrar, onCreado }: {
             </div>
           ))}
         </div>
+
+        {subcategoriasCategoria.length > 0 && (
+          <div className="mb-6">
+            <label className="block text-[10px] font-semibold tracking-widest uppercase text-[var(--text-soft)] mb-2">Subcategorías</label>
+            <AtributosPicker subcategorias={subcategoriasCategoria} selected={atributos} onToggle={toggleAtributo} />
+          </div>
+        )}
 
         <div className="flex gap-3 justify-end">
           <button onClick={onCerrar} className="px-5 py-2 border-[1.5px] border-[var(--gold)] text-[var(--earth)] text-xs font-semibold tracking-widest uppercase rounded-lg hover:bg-[var(--warm)] transition-colors">

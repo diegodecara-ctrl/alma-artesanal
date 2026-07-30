@@ -17,10 +17,10 @@ const dmSans = DM_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'Alma Artesanal — Bijouterie',
+  title: 'Creaciones Nala — Bijouterie',
   description: 'Bijouterie artesanal única, hecha a mano con amor.',
   openGraph: {
-    title: 'Alma Artesanal',
+    title: 'Creaciones Nala',
     description: 'Bijouterie artesanal única, hecha a mano con amor.',
     type: 'website'
   }

@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════
--- ALMA ARTESANAL — Schema de base de datos
+-- CREACIONES NALA — Schema de base de datos
 -- Ejecutar en: Supabase → SQL Editor → New query
 -- ═══════════════════════════════════════════════════
 

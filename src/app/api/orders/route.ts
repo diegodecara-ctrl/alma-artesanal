@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     await resend.emails.send({
       from: process.env.EMAIL_FROM!,
       to: envio.email,
-      subject: `✨ Pedido #${pedido.numero} recibido — Alma Artesanal`,
+      subject: `✨ Pedido #${pedido.numero} recibido — Creaciones Nala`,
       html: emailConfirmacion(pedido.numero, envio, total)
     })
     // Email al admin
@@ -127,7 +127,7 @@ function emailConfirmacion(numero: number, envio: CrearPedidoPayload['envio'], t
   return `
   <div style="font-family:Georgia,serif;max-width:560px;margin:0 auto;color:#3d2b1f">
     <div style="background:#3d2b1f;padding:32px;text-align:center">
-      <h1 style="color:#c9a96e;margin:0;font-size:28px;font-weight:300">Alma <em>Artesanal</em></h1>
+      <h1 style="color:#c9a96e;margin:0;font-size:28px;font-weight:300">Creaciones <em>Nala</em></h1>
     </div>
     <div style="padding:32px;background:#fdfaf5">
       <h2 style="font-weight:400">¡Gracias por tu pedido, ${envio.nombre}!</h2>
@@ -140,7 +140,7 @@ function emailConfirmacion(numero: number, envio: CrearPedidoPayload['envio'], t
       <p style="color:#7a6355;font-size:14px">¿Dudas? Respondé este email y te ayudamos.</p>
     </div>
     <div style="background:#e8ddd0;padding:16px;text-align:center;font-size:12px;color:#7a6355">
-      Hecho con amor · Alma Artesanal
+      Hecho con amor · Creaciones Nala
     </div>
   </div>`
 }

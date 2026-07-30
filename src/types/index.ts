@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// Tipos principales de Alma Artesanal
+// Tipos principales de Creaciones Nala
 // ═══════════════════════════════════════════
 
 export type Categoria = 'Collares' | 'Pulseras' | 'Aros' | 'Anillos' | 'Broches' | 'Sets' | 'Otro'
@@ -15,6 +15,22 @@ export interface Producto {
   activo: boolean
   creado_en: string
   actualizado_en: string
+  atributos?: string[] // ids de subcategoria_valores asignados
+}
+
+export interface SubcategoriaValor {
+  id: string
+  subcategoria_id: string
+  nombre: string
+  orden: number
+}
+
+export interface Subcategoria {
+  id: string
+  categoria: Categoria
+  nombre: string
+  orden: number
+  subcategoria_valores: SubcategoriaValor[]
 }
 
 export interface ItemCarrito {
